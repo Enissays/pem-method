@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestion des Durées</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            background: #f7f7f7;
+        }
+        .container {
+            max-width: 500px;
+            margin: 24px auto;
+            background: #fff;
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px #ccc;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.7em;
+        }
+        .input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        input[type="text"], input[type="number"] {
+            flex: 1 1 120px;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            min-width: 80px;
+            font-size: 1em;
+        }
+        button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            background: #007bff;
+            color: #fff;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        button:disabled {
+            background: #aaa;
+        }
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+        li {
+            background: #e9ecef;
+            margin-bottom: 8px;
+            padding: 8px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-size: 1em;
+            flex-wrap: wrap;
+        }
+        .selected {
+            background: #cce5ff;
+        }
+        .timer-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .timer-controls input[type="number"] {
+            min-width: 50px;
+            max-width: 70px;
+            font-size: 1em;
+        }
+        .timer-display {
+            text-align: center;
+            font-size: 2em;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+        @media (max-width: 600px) {
+            .container {
+                max-width: 98vw;
+                margin: 8px auto;
+                padding: 8px;
+            }
+            h1 {
+                font-size: 1.2em;
+            }
+            .input-group {
+                gap: 4px;
+            }
+            button {
+                padding: 8px 8px;
+                font-size: 0.95em;
+            }
+            li {
+                font-size: 0.95em;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .timer-controls {
+                gap: 4px;
+            }
+            .timer-display {
+                font-size: 1.3em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gestion des Durées</h1>
+        <div class="input-group">
+            <input type="text" id="name" placeholder="Nom">
+            <input type="number" id="hours" placeholder="Durée (heures)" min="0" step="0.1">
+            <button id="addBtn">Ajouter</button>
+        </div>
+        <ul id="stack"></ul>
+        <div id="timerSection" style="display:none;">
+            <div class="timer-display" id="timerDisplay">00:00:00</div>
+            <div class="timer-controls">
+                <button id="startBtn">Démarrer</button>
+                <button id="pauseBtn">Pause</button>
+                <button id="resetBtn">Réinitialiser</button>
+                <button id="plus5Btn">+5 min</button>
+                <input type="number" id="plusMinutesInput" placeholder="min" min="1" style="width:60px;">
+                <button id="plusMinutesBtn">+ min</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Utilisation du localStorage
+        const stackKey = 'durationStack';
+        let stack = JSON.parse(localStorage.getItem(stackKey) || '[]');
+        let selectedIndex = null;
+        let timer = null;
+        let remainingSeconds = 0;
+        let paused = false;
+
+        function saveStack() {
+            localStorage.setItem(stackKey, JSON.stringify(stack));
+        }
+
+        function renderStack() {
+            const ul = document.getElementById('stack');
+            ul.innerHTML = '';
+            stack.forEach((item, idx) => {
+                const li = document.createElement('li');
+                let rest = item.remainingSeconds !== undefined ? item.remainingSeconds : Math.round(item.hours * 3600);
+                const h = Math.floor(rest / 3600);
+                const m = Math.floor((rest % 3600) / 60);
+                const s = rest % 60;
+                const infoSpan = document.createElement('span');
+                infoSpan.textContent = `${item.name} - ${item.hours}h | restant: ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+                infoSpan.style.flex = '1';
+                li.appendChild(infoSpan);
+                const delBtn = document.createElement('button');
+                delBtn.textContent = '🗑️';
+                delBtn.title = 'Supprimer';
+                delBtn.style.marginLeft = '8px';
+                delBtn.style.background = '#dc3545';
+                delBtn.style.color = '#fff';
+                delBtn.style.border = 'none';
+                delBtn.style.borderRadius = '4px';
+                delBtn.style.cursor = 'pointer';
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    stack.splice(idx, 1);
+                    if (selectedIndex === idx) {
+                        selectedIndex = null;
+                        document.getElementById('timerSection').style.display = 'none';
+                    } else if (selectedIndex > idx) {
+                        selectedIndex--;
+                    }
+                    saveStack();
+                    renderStack();
+                };
+                li.appendChild(delBtn);
+                if (selectedIndex === idx) li.classList.add('selected');
+                li.onclick = () => selectItem(idx);
+                ul.appendChild(li);
+            });
+        }
+
+        function selectItem(idx) {
+            selectedIndex = idx;
+            renderStack();
+            showTimerSection();
+        }
+
+        function showTimerSection() {
+            if (selectedIndex === null) {
+                document.getElementById('timerSection').style.display = 'none';
+                return;
+            }
+            document.getElementById('timerSection').style.display = 'block';
+            // Utilise la durée restante sauvegardée ou la durée initiale
+            if (stack[selectedIndex].remainingSeconds !== undefined) {
+                remainingSeconds = stack[selectedIndex].remainingSeconds;
+            } else {
+                remainingSeconds = Math.round(stack[selectedIndex].hours * 3600);
+            }
+            paused = false;
+            updateTimerDisplay();
+            clearInterval(timer);
+        }
+
+        function updateTimerDisplay() {
+            const h = Math.floor(remainingSeconds / 3600);
+            const m = Math.floor((remainingSeconds % 3600) / 60);
+            const s = remainingSeconds % 60;
+            document.getElementById('timerDisplay').textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        function startTimer() {
+            if (timer || remainingSeconds <= 0) return;
+            paused = false;
+            timer = setInterval(() => {
+                if (!paused && remainingSeconds > 0) {
+                    remainingSeconds--;
+                    // Sauvegarde la durée restante dans le bloc sélectionné
+                    stack[selectedIndex].remainingSeconds = remainingSeconds;
+                    saveStack();
+                    updateTimerDisplay();
+                    renderStack();
+                    if (remainingSeconds === 0) {
+                        clearInterval(timer);
+                        timer = null;
+                        alert('Temps écoulé !');
+                    }
+                }
+            }, 1000);
+        }
+
+        function pauseTimer() {
+            paused = true;
+        }
+
+        function resetTimer() {
+            if (selectedIndex !== null) {
+                remainingSeconds = Math.round(stack[selectedIndex].hours * 3600);
+                stack[selectedIndex].remainingSeconds = remainingSeconds;
+                saveStack();
+                updateTimerDisplay();
+                renderStack();
+                paused = false;
+                clearInterval(timer);
+                timer = null;
+            }
+        }
+
+        document.getElementById('addBtn').onclick = () => {
+            const name = document.getElementById('name').value.trim();
+            const hours = parseFloat(document.getElementById('hours').value);
+            if (!name || isNaN(hours) || hours <= 0) return;
+            // Ajoute la durée restante initiale
+            stack.push({ name, hours, remainingSeconds: Math.round(hours * 3600) });
+            saveStack();
+            renderStack();
+            document.getElementById('name').value = '';
+            document.getElementById('hours').value = '';
+        };
+        document.getElementById('startBtn').onclick = startTimer;
+        document.getElementById('pauseBtn').onclick = pauseTimer;
+        document.getElementById('resetBtn').onclick = resetTimer;
+        document.getElementById('plus5Btn').onclick = function() {
+            if (selectedIndex !== null) {
+                stack[selectedIndex].remainingSeconds = (stack[selectedIndex].remainingSeconds || 0) + 300;
+                saveStack();
+                remainingSeconds = stack[selectedIndex].remainingSeconds;
+                updateTimerDisplay();
+                renderStack();
+            }
+        };
+        document.getElementById('plusMinutesBtn').onclick = function() {
+            if (selectedIndex !== null) {
+                const min = parseInt(document.getElementById('plusMinutesInput').value);
+                if (!isNaN(min) && min > 0) {
+                    stack[selectedIndex].remainingSeconds = (stack[selectedIndex].remainingSeconds || 0) + min * 60;
+                    saveStack();
+                    remainingSeconds = stack[selectedIndex].remainingSeconds;
+                    updateTimerDisplay();
+                    renderStack();
+                    document.getElementById('plusMinutesInput').value = '';
+                }
+            }
+        };
+
+        renderStack();
+    </script>
+</body>
+</html>
